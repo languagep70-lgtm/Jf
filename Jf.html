@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title> </title>
+    <style>
+        /* --- RESET Y ESTILO BASE --- */
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #000;
+            overflow: hidden;
+            cursor: crosshair;
+            font-family: monospace;
+        }
+
+        /* --- EFECTOS VHS / ESTÁTICA --- */
+        .noise {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 100;
+            opacity: 0.15;
+            background-image: url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyMDAiIGhlaWdodD0iMjAwIj48ZmlsdGVyIGlkPSJnoiPjxmZVR1cmJ1bGVuY2UgdHlwZT0iZnJhY3RhbE5vaXNlIiBiYXNlRnJlcXVlbmN5PSIwLjgiIG51bU9jdGF2ZXM9IjMiIHN0aXRjaFRpbGVzPSJzdGl0Y2giLz48L2ZpbHRlcj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWx0ZXI9InVybCgjZykiIG9wYWNpdHk9IjAuNSIvPjwvc3ZnPg==');
+        }
+
+        .scanlines {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: linear-gradient(
+                to bottom,
+                rgba(255,255,255,0),
+                rgba(255,255,255,0) 50%,
+                rgba(0,0,0,0.4) 50%,
+                rgba(0,0,0,0.4)
+            );
+            background-size: 100% 3px;
+            pointer-events: none;
+            z-index: 101;
+        }
+
+        .chromatic {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            box-shadow: inset 0 0 100px rgba(0,0,0,0.9);
+            pointer-events: none;
+            z-index: 99;
+        }
+
+        /* --- CONTENEDOR DE JUEGO --- */
+        #game-container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            z-index: 10;
+        }
+
+        .bouncing-img {
+            position: absolute;
+            image-rendering: pixelated; 
+            filter: contrast(130%) brightness(0.8) grayscale(100%);
+        }
+
+        /* --- NUEVO ESTILO: SCREAMER --- */
+        #scream-overlay {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 80%; /* Ajusta el tamaño según prefieras */
+            max-height: 80%;
+            z-index: 500; /* Por encima de todo el juego */
+            display: none;
+            pointer-events: none; /* No interfiere con los clicks del juego */
+        }
+
+        .screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #000;
+            z-index: 600;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .hidden { display: none !important; }
+
+        #start-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 999;
+            background: #000;
+            cursor: pointer;
+        }
+
+        .full-img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            background: black;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="scanlines"></div>
+    <div class="noise"></div>
+    <div class="chromatic"></div>
+
+    <div id="start-overlay"></div>
+
+    <div id="game-container"></div>
+
+    <img id="scream-overlay" src="scream.png" alt="">
+
+    <div id="death-screen" class="screen hidden">
+        <img id="death-img" class="full-img" src="" alt="">
+    </div>
+
+    <div id="victory-screen" class="screen hidden">
+        <img id="victory-img" class="full-img" src="" alt="">
+    </div>
+
+    <script>
+        const CONFIG = {
+            safeImage: 'jf.png',
+            trapImages: ['foto1.png', 'foto2.png', 'foto3.png', 'foto4.png'],
+            audio: {
+                bg: '1.mp3',
+                death: '2.mp3',
+                win: '3.mp3',
+                scream: '4.mp3' // Nuevo audio
+            },
+            screens: {
+                death: 'muerte.png',
+                victory: 'victoria.png'
+            },
+            speed: 18,
+            count: {
+                safe: 6,
+                trap: 4
+            },
+            size: 150
+        };
+
+        let state = {
+            playing: false,
+            elements: [],
+            safeClicked: 0
+        };
+
+        const container = document.getElementById('game-container');
+        const deathScreen = document.getElementById('death-screen');
+        const victoryScreen = document.getElementById('victory-screen');
+        const startOverlay = document.getElementById('start-overlay');
+        const screamImg = document.getElementById('scream-overlay');
+
+        const bgAudio = new Audio(CONFIG.audio.bg);
+        bgAudio.loop = true;
+        const deathAudio = new Audio(CONFIG.audio.death);
+        const winAudio = new Audio(CONFIG.audio.win);
+        const screamAudio = new Audio(CONFIG.audio.scream);
+
+        function startGame() {
+            startOverlay.style.display = 'none';
+            state.playing = true;
+            initElements();
+            bgAudio.play().catch(e => console.log("Audio bloqueado:", e));
+            
+            // INICIAR EVENTO SCREAM CADA 3 SEGUNDOS
+            setInterval(triggerScream, 3000);
+            
+            requestAnimationFrame(loop);
+        }
+
+        // Lógica del evento Scream
+        function triggerScream() {
+            if (!state.playing) return;
+
+            screamImg.style.display = 'block';
+            screamAudio.currentTime = 0;
+            screamAudio.play().catch(e => {});
+
+            // Desaparece después de 1 segundo
+            setTimeout(() => {
+                screamImg.style.display = 'none';
+            }, 1000);
+        }
+
+        function getPlaceholder(color, text) {
+            const svg = `<svg width="${CONFIG.size}" height="${CONFIG.size}" xmlns="http://www.w3.org/2000/svg"><rect width="100%" height="100%" fill="${color}"/><text x="50%" y="50%" font-family="monospace" font-size="20" fill="white" text-anchor="middle" dy=".3em">${text}</text></svg>`;
+            return 'data:image/svg+xml;base64,' + btoa(svg);
+        }
+
+        function initElements() {
+            for(let i=0; i<CONFIG.count.safe; i++) {
+                spawnImg(CONFIG.safeImage, 'safe');
+            }
+            CONFIG.trapImages.forEach(src => {
+                spawnImg(src, 'trap');
+            });
+        }
+
+        function spawnImg(src, type) {
+            const img = document.createElement('img');
+            img.src = src;
+            img.className = 'bouncing-img';
+            
+            const w = CONFIG.size + (Math.random() * 60 - 30);
+            const h = w;
+            img.style.width = `${w}px`;
+            img.style.height = `${h}px`;
+
+            img.onerror = function() {
+                this.src = getPlaceholder(type === 'safe' ? '#333' : '#500', src);
+            };
+
+            const x = Math.random() * (window.innerWidth - w);
+            const y = Math.random() * (window.innerHeight - h);
+
+            const angle = Math.random() * Math.PI * 2;
+            const speed = CONFIG.speed + Math.random() * 5;
+
+            const el = {
+                dom: img,
+                x: x,
+                y: y,
+                vx: Math.cos(angle) * speed,
+                vy: Math.sin(angle) * speed,
+                w: w,
+                h: h,
+                type: type
+            };
+
+            img.addEventListener('mousedown', (e) => {
+                if(!state.playing) return;
+                handleClick(el);
+            });
+
+            container.appendChild(img);
+            state.elements.push(el);
+        }
+
+        function handleClick(el) {
+            if(el.type === 'safe') {
+                el.dom.remove();
+                state.elements = state.elements.filter(e => e !== el);
+                state.safeClicked++;
+                if(state.safeClicked >= CONFIG.count.safe) {
+                    win();
+                }
+            } else {
+                die();
+            }
+        }
+
+        function die() {
+            state.playing = false;
+            bgAudio.pause();
+            screamAudio.pause(); // Detener screamer si muere
+            deathAudio.currentTime = 0;
+            deathAudio.play().catch(e => {});
+
+            const img = document.getElementById('death-img');
+            img.src = CONFIG.screens.death;
+            img.onerror = () => img.src = getPlaceholder('red', 'MUERTE');
+            
+            deathScreen.classList.remove('hidden');
+        }
+
+        function win() {
+            state.playing = false;
+            bgAudio.pause();
+            screamAudio.pause(); // Detener screamer si gana
+            winAudio.currentTime = 0;
+            winAudio.play().catch(e => {});
+
+            const img = document.getElementById('victory-img');
+            img.src = CONFIG.screens.victory;
+            img.onerror = () => img.src = getPlaceholder('white', 'VICTORIA');
+
+            victoryScreen.classList.remove('hidden');
+        }
+
+        function loop() {
+            if(!state.playing) return;
+
+            const width = window.innerWidth;
+            const height = window.innerHeight;
+
+            state.elements.forEach(el => {
+                el.x += el.vx;
+                el.y += el.vy;
+
+                if(el.x <= 0) { el.x = 0; el.vx *= -1; }
+                else if(el.x + el.w >= width) { el.x = width - el.w; el.vx *= -1; }
+
+                if(el.y <= 0) { el.y = 0; el.vy *= -1; }
+                else if(el.y + el.h >= height) { el.y = height - el.h; el.vy *= -1; }
+
+                el.dom.style.transform = `translate(${el.x}px, ${el.y}px)`;
+            });
+
+            requestAnimationFrame(loop);
+        }
+
+        startOverlay.addEventListener('click', startGame);
+
+    </script>
+</body>
+</html>
+
+
+ <!--  q edgy soi xd -->
